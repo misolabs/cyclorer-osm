@@ -4,7 +4,7 @@ import { FileCache } from '../services/file-cache';
 import { overpassToGeoJson } from '../services/geojson';
 import { fetchHighwayWays } from '../services/overpass';
 import { buildCacheKey } from '../utils/cache-key';
-import { tileIndexToBbox } from '../utils/mercator';
+import { expandBbox, tileIndexToBbox } from '../utils/mercator';
 
 type TileParams = {
   x: string;
@@ -12,7 +12,7 @@ type TileParams = {
   res: string;
 };
 
-const ENDPOINT_ID = 'highways-v1';
+const ENDPOINT_ID = 'highways-v2';
 
 const cache = new FileCache({
   cacheDir: config.cacheDir,
@@ -46,16 +46,17 @@ export default async function highwaysRoutes(app: FastifyInstance): Promise<void
     }
 
     const cacheKey = buildCacheKey({ endpoint: ENDPOINT_ID, x, y, res });
+    const tileBbox = tileIndexToBbox(x, y, res);
+    const queryBbox = expandBbox(tileBbox, config.overpassBboxPaddingMeters);
+
     const cached = await cache.get<unknown>(cacheKey);
     if (cached) {
-      return reply.send({ source: 'cache', data: cached });
+      return reply.send({ source: 'cache', cacheKey, tileBbox, queryBbox, data: cached });
     }
 
-    const tileBbox = tileIndexToBbox(x, y, res);
-
     try {
-      const { osmData, queryBbox } = await fetchHighwayWays(tileBbox);
-      const geojson = overpassToGeoJson(osmData);
+      const { osmData } = await fetchHighwayWays(tileBbox);
+      const geojson = overpassToGeoJson(osmData, tileBbox);
       await cache.set(cacheKey, geojson);
 
       return reply.send({

@@ -39,7 +39,7 @@ ground_metres ≈ configured_metres × cos(latitude)
 
 To target a specific ground distance: `configured = target_metres / cos(latitude_radians)`.
 
-Cropping the returned GeoJSON to the tile bbox after padding is **not yet implemented** — features from the padded margin will be present in the response.
+After conversion, a final crop step is applied: a feature is kept only if its geometry **starts or ends** inside the core tile bbox.
 
 ## Env
 
