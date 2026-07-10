@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import config from '../config';
+import { detectDeadendWayIds } from '../services/deadends';
 import { FileCache } from '../services/file-cache';
 import { overpassToGeoJson } from '../services/geojson';
 import { fetchHighwayWays } from '../services/overpass';
@@ -12,7 +13,7 @@ type TileParams = {
   res: string;
 };
 
-const ENDPOINT_ID = 'highways-v2';
+const ENDPOINT_ID = 'highways-v3';
 
 const cache = new FileCache({
   cacheDir: config.cacheDir,
@@ -45,7 +46,13 @@ export default async function highwaysRoutes(app: FastifyInstance): Promise<void
       return reply.badRequest('x and y must be finite numbers, and res must be > 0');
     }
 
-    const cacheKey = buildCacheKey({ endpoint: ENDPOINT_ID, x, y, res });
+    const cacheKey = buildCacheKey({
+      endpoint: ENDPOINT_ID,
+      x,
+      y,
+      res,
+      variant: `padding=${config.overpassBboxPaddingMeters}`,
+    });
     const tileBbox = tileIndexToBbox(x, y, res);
     const queryBbox = expandBbox(tileBbox, config.overpassBboxPaddingMeters);
 
@@ -55,8 +62,9 @@ export default async function highwaysRoutes(app: FastifyInstance): Promise<void
     }
 
     try {
-      const { osmData } = await fetchHighwayWays(tileBbox);
-      const geojson = overpassToGeoJson(osmData, tileBbox);
+      const { osmData, queryBbox } = await fetchHighwayWays(tileBbox);
+      const deadendWayIds = detectDeadendWayIds(osmData, tileBbox, queryBbox);
+      const geojson = overpassToGeoJson(osmData, tileBbox, deadendWayIds);
       await cache.set(cacheKey, geojson);
 
       return reply.send({

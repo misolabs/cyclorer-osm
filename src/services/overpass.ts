@@ -5,7 +5,26 @@ import { expandBbox } from '../utils/mercator';
 export type OverpassResponse = {
   version: number;
   generator: string;
-  elements: unknown[];
+  elements: OverpassElement[];
+};
+
+export type OverpassNodeElement = {
+  type: 'node';
+  id: number;
+  lat: number;
+  lon: number;
+};
+
+export type OverpassWayElement = {
+  type: 'way';
+  id: number;
+  nodes: number[];
+  tags?: Record<string, string>;
+};
+
+export type OverpassElement = OverpassNodeElement | OverpassWayElement | {
+  type: string;
+  [key: string]: unknown;
 };
 
 export type FetchHighwayWaysResult = {

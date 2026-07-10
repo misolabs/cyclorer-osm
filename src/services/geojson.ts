@@ -11,6 +11,7 @@ type Geometry = {
 
 type Feature = {
   type: 'Feature';
+  id?: string | number;
   geometry: Geometry | null;
   properties?: Record<string, unknown>;
 };
@@ -103,11 +104,55 @@ export function cropToCoreBbox(featureCollection: FeatureCollection, coreBbox: B
   };
 }
 
-export function overpassToGeoJson(payload: OverpassResponse, coreBbox: Bbox): FeatureCollection {
+function parseWayId(feature: Feature): number | null {
+  const rawId = typeof feature.id === 'string'
+    ? feature.id
+    : typeof feature.properties?.id === 'string'
+      ? feature.properties.id
+      : null;
+
+  if (!rawId) {
+    return null;
+  }
+
+  const match = /^way\/(\d+)$/.exec(rawId);
+  if (!match) {
+    return null;
+  }
+
+  return Number(match[1]);
+}
+
+function annotateDeadends(featureCollection: FeatureCollection, deadendWayIds: ReadonlySet<number>): FeatureCollection {
+  if (deadendWayIds.size === 0) {
+    return featureCollection;
+  }
+
+  return {
+    ...featureCollection,
+    features: featureCollection.features.map((feature) => {
+      const wayId = parseWayId(feature);
+      if (wayId === null || !deadendWayIds.has(wayId)) {
+        return feature;
+      }
+
+      return {
+        ...feature,
+        properties: {
+          ...(feature.properties ?? {}),
+          deadend: true,
+        },
+      };
+    }),
+  };
+}
+
+export function overpassToGeoJson(payload: OverpassResponse, coreBbox: Bbox, deadendWayIds: ReadonlySet<number> = new Set()): FeatureCollection {
   const geojson = osmtogeojson(payload) as FeatureCollection;
   if (geojson.type !== 'FeatureCollection' || !Array.isArray(geojson.features)) {
     return { type: 'FeatureCollection', features: [] };
   }
-  return cropToCoreBbox(geojson, coreBbox);
+
+  return cropToCoreBbox(annotateDeadends(geojson, deadendWayIds), coreBbox);
 }
 

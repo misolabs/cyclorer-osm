@@ -10,7 +10,7 @@ const config = {
   host:                              process.env.HOST                         ?? '0.0.0.0',
   nodeEnv:                           process.env.NODE_ENV                     ?? 'development',
   overpassUrls,
-  overpassBboxPaddingMeters: parseInt(process.env.OVERPASS_BBOX_PADDING_METERS ?? '0',    10),
+  overpassBboxPaddingMeters: parseInt(process.env.OVERPASS_BBOX_PADDING_METERS ?? '1000',    10),
   cacheTtlSeconds:           parseInt(process.env.CACHE_TTL_SECONDS           ?? '3600',  10),
   cacheDir:                           process.env.CACHE_DIR                   ?? './cache',
   corsOrigin:                         process.env.CORS_ORIGIN                 ?? '*',
