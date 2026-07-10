@@ -13,7 +13,7 @@ type TileParams = {
   res: string;
 };
 
-const ENDPOINT_ID = 'highways-v3';
+const ENDPOINT_ID = 'highways-v4';
 
 const cache = new FileCache({
   cacheDir: config.cacheDir,

@@ -53,18 +53,24 @@ function getEndpointInfo(way: OverpassWayElement, nodesById: Map<number, Overpas
 function endpointIsTerminal(
   nodeId: number,
   selfWayId: number,
-  waysByNodeId: Map<number, Set<number>>,
+  waysByNodeId: Map<number, Map<number, 'endpoint' | 'inner'>>,
   forbiddenWayIds: Set<number>,
   deadendWayIds: Set<number>,
 ): boolean {
-  const connectedWayIds = waysByNodeId.get(nodeId);
-  if (!connectedWayIds || connectedWayIds.size === 0) {
+  const connectedWays = waysByNodeId.get(nodeId);
+  if (!connectedWays || connectedWays.size === 0) {
     return true;
   }
 
-  for (const connectedWayId of connectedWayIds) {
+  for (const [connectedWayId, role] of connectedWays) {
     if (connectedWayId === selfWayId) {
       continue;
+    }
+
+    // Endpoint touching the interior of another non-forbidden way is a junction,
+    // even if that other way is later classified as dead-end.
+    if (role === 'inner' && !forbiddenWayIds.has(connectedWayId)) {
+      return false;
     }
 
     if (!forbiddenWayIds.has(connectedWayId) && !deadendWayIds.has(connectedWayId)) {
@@ -75,7 +81,7 @@ function endpointIsTerminal(
   return true;
 }
 
-function isBoundaryCrossingDeadend(
+function isTileRelevantDeadend(
   endpointInfo: EndpointInfo,
   tileBbox: Bbox,
   queryBbox: Bbox,
@@ -84,20 +90,24 @@ function isBoundaryCrossingDeadend(
     return false;
   }
 
-  const startInTile = isInsideBbox(endpointInfo.startNode, tileBbox);
-  const endInTile = isInsideBbox(endpointInfo.endNode, tileBbox);
+  const startInQuery = isInsideBbox(endpointInfo.startNode, queryBbox);
+  const endInQuery = isInsideBbox(endpointInfo.endNode, queryBbox);
 
-  if (!startInTile && !endInTile) {
+  if (!startInQuery || !endInQuery) {
     return false;
   }
 
-  return isInsideBbox(endpointInfo.startNode, queryBbox) && isInsideBbox(endpointInfo.endNode, queryBbox);
+  const startInTile = isInsideBbox(endpointInfo.startNode, tileBbox);
+  const endInTile = isInsideBbox(endpointInfo.endNode, tileBbox);
+
+  // Keep dead-ends that touch the core tile at either endpoint, including fully in-tile ways.
+  return startInTile || endInTile;
 }
 
 export function detectDeadendWayIds(payload: OverpassResponse, tileBbox: Bbox, queryBbox: Bbox): Set<number> {
   const nodesById = new Map<number, OverpassNodeElement>();
   const waysById = new Map<number, OverpassWayElement>();
-  const waysByNodeId = new Map<number, Set<number>>();
+  const waysByNodeId = new Map<number, Map<number, 'endpoint' | 'inner'>>();
 
   for (const element of payload.elements) {
     if (isNodeElement(element)) {
@@ -111,10 +121,18 @@ export function detectDeadendWayIds(payload: OverpassResponse, tileBbox: Bbox, q
 
     waysById.set(element.id, element);
 
-    for (const nodeId of element.nodes) {
-      const wayIds = waysByNodeId.get(nodeId) ?? new Set<number>();
-      wayIds.add(element.id);
-      waysByNodeId.set(nodeId, wayIds);
+    const lastIndex = element.nodes.length - 1;
+    for (const [index, nodeId] of element.nodes.entries()) {
+      const role: 'endpoint' | 'inner' = index === 0 || index === lastIndex ? 'endpoint' : 'inner';
+      const wayRoles = waysByNodeId.get(nodeId) ?? new Map<number, 'endpoint' | 'inner'>();
+      const previousRole = wayRoles.get(element.id);
+
+      // If a node appears multiple times on a way, preserve inner classification.
+      if (previousRole !== 'inner') {
+        wayRoles.set(element.id, role);
+      }
+
+      waysByNodeId.set(nodeId, wayRoles);
     }
   }
 
@@ -167,7 +185,7 @@ export function detectDeadendWayIds(payload: OverpassResponse, tileBbox: Bbox, q
     }
   }
 
-  const boundaryDeadendWayIds = new Set<number>();
+  const relevantDeadendWayIds = new Set<number>();
 
   for (const wayId of deadendWayIds) {
     const endpointInfo = endpointInfoByWayId.get(wayId);
@@ -175,11 +193,10 @@ export function detectDeadendWayIds(payload: OverpassResponse, tileBbox: Bbox, q
       continue;
     }
 
-    if (isBoundaryCrossingDeadend(endpointInfo, tileBbox, queryBbox)) {
-      boundaryDeadendWayIds.add(wayId);
+    if (isTileRelevantDeadend(endpointInfo, tileBbox, queryBbox)) {
+      relevantDeadendWayIds.add(wayId);
     }
   }
 
-  return boundaryDeadendWayIds;
+  return relevantDeadendWayIds;
 }
-

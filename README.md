@@ -14,7 +14,7 @@ TypeScript Fastify API for serving tile-based OSM data as GeoJSON.
 - Computes bbox in WGS84 from Web Mercator tile indices
 - Queries Overpass for `way[highway]` plus node geometry
 - Converts OSM JSON to GeoJSON via `osmtogeojson`
-- Marks detected border dead-ends with `properties.deadend = true`
+- Marks detected dead-ends touching the core tile with `properties.deadend = true`
 - Caches final GeoJSON response to local files under `CACHE_DIR`
 
 ## Tile coordinate model
@@ -45,7 +45,7 @@ After conversion, a final crop step is applied: a feature is kept only if its ge
 ## Dead-end tagging
 
 - Dead-end detection runs on the padded Overpass result before GeoJSON conversion
-- A returned way is tagged with `deadend: true` when it is part of an iteratively pruned terminal branch and crosses from the core tile into the padded query area
+- A returned way is tagged with `deadend: true` when it is part of an iteratively pruned terminal branch and has at least one endpoint inside the core tile (including fully in-tile dead-ends)
 - For now, ways with `access=no` are treated as forbidden during pruning
 
 ## Env
@@ -66,4 +66,3 @@ npm run dev
 curl "http://localhost:3000/version"
 curl "http://localhost:3000/tiles/highways/0/0/1000"
 ```
-
