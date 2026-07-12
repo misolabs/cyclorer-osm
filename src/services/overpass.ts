@@ -1,4 +1,6 @@
+import { createHash } from 'node:crypto';
 import config from '../config';
+import { FileCache } from './file-cache';
 import type { Bbox } from '../utils/mercator';
 import { expandBbox } from '../utils/mercator';
 
@@ -32,6 +34,14 @@ export type FetchHighwayWaysResult = {
   queryBbox: Bbox;
 };
 
+const RAW_OVERPASS_CACHE_TTL_SECONDS = 60 * 60 * 24 * 60;
+
+const rawOverpassCache = new FileCache({
+  cacheDir: config.cacheDir,
+  ttlSeconds: RAW_OVERPASS_CACHE_TTL_SECONDS,
+  subdir: 'overpass',
+});
+
 function toOverpassBbox(bbox: Bbox): string {
   return `${bbox.south},${bbox.west},${bbox.north},${bbox.east}`;
 }
@@ -41,6 +51,7 @@ export function buildHighwayWaysQuery(bbox: Bbox): string {
   return `
 [out:json][timeout:25];
 (
+  relation["route"="bicycle"](${bboxString});
   way["highway"](${bboxString});
 );
 out body;
@@ -49,9 +60,17 @@ out skel qt;
 `.trim();
 }
 
-export async function fetchHighwayWays(tileBbox: Bbox, paddingMeters = config.overpassBboxPaddingMeters): Promise<FetchHighwayWaysResult> {
-  const queryBbox = expandBbox(tileBbox, paddingMeters);
-  const query = buildHighwayWaysQuery(queryBbox);
+function buildRawOverpassCacheKey(query: string): string {
+  return createHash('sha1').update(`overpass:v1:${query}`).digest('hex');
+}
+
+async function fetchOverpassQuery(query: string): Promise<OverpassResponse> {
+  const cacheKey = buildRawOverpassCacheKey(query);
+  const cached = await rawOverpassCache.get<OverpassResponse>(cacheKey);
+  if (cached) {
+    return cached;
+  }
+
   const failures: string[] = [];
 
   for (const endpoint of config.overpassUrls) {
@@ -65,7 +84,9 @@ export async function fetchHighwayWays(tileBbox: Bbox, paddingMeters = config.ov
     });
 
     if (response.ok) {
-      return { osmData: (await response.json()) as OverpassResponse, queryBbox };
+      const osmData = (await response.json()) as OverpassResponse;
+      await rawOverpassCache.set(cacheKey, osmData);
+      return osmData;
     }
 
     failures.push(`${endpoint} -> ${response.status}`);
@@ -74,4 +95,9 @@ export async function fetchHighwayWays(tileBbox: Bbox, paddingMeters = config.ov
   throw new Error(`Overpass request failed for all endpoints: ${failures.join(', ')}`);
 }
 
-
+export async function fetchHighwayWays(tileBbox: Bbox, paddingMeters = config.overpassBboxPaddingMeters): Promise<FetchHighwayWaysResult> {
+  const queryBbox = expandBbox(tileBbox, paddingMeters);
+  const query = buildHighwayWaysQuery(queryBbox);
+  const osmData = await fetchOverpassQuery(query);
+  return { osmData, queryBbox };
+}

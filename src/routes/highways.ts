@@ -18,6 +18,7 @@ const ENDPOINT_ID = 'highways-v4';
 const cache = new FileCache({
   cacheDir: config.cacheDir,
   ttlSeconds: config.cacheTtlSeconds,
+  subdir: 'geojson',
 });
 
 function parseFiniteNumber(value: string): number | null {
@@ -63,6 +64,7 @@ export default async function highwaysRoutes(app: FastifyInstance): Promise<void
 
     try {
       const { osmData, queryBbox } = await fetchHighwayWays(tileBbox);
+
       const deadendWayIds = detectDeadendWayIds(osmData, tileBbox, queryBbox);
       const geojson = overpassToGeoJson(osmData, tileBbox, deadendWayIds);
       await cache.set(cacheKey, geojson);
@@ -80,6 +82,3 @@ export default async function highwaysRoutes(app: FastifyInstance): Promise<void
     }
   });
 }
-
-
-

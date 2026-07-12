@@ -27,7 +27,9 @@ function isInsideBbox(node: OverpassNodeElement, bbox: Bbox): boolean {
 }
 
 function isForbiddenWay(way: OverpassWayElement): boolean {
-  return way.tags?.access === 'no';
+  return (way.tags?.access === 'no' && way.tags?.bicycle !== 'yes')
+      || way.tags?.access === 'private'
+      || way.tags?.bicycle === 'no';
 }
 
 function getEndpointInfo(way: OverpassWayElement, nodesById: Map<number, OverpassNodeElement>): EndpointInfo | null {
