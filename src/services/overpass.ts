@@ -21,10 +21,27 @@ export type OverpassWayElement = {
   type: 'way';
   id: number;
   nodes: number[];
-  tags?: Record<string, string>;
+  tags?: OverpassTags;
 };
 
-export type OverpassElement = OverpassNodeElement | OverpassWayElement | {
+export type OverpassRelationMember = {
+  type: 'node' | 'way' | 'relation';
+  ref: number;
+  role?: string;
+};
+
+export type OverpassRelationElement = {
+  type: 'relation';
+  id: number;
+  members: OverpassRelationMember[];
+  tags?: OverpassTags;
+};
+
+export type OverpassTagValue = string | string[];
+
+export type OverpassTags = Record<string, OverpassTagValue>;
+
+export type OverpassElement = OverpassNodeElement | OverpassWayElement | OverpassRelationElement | {
   type: string;
   [key: string]: unknown;
 };

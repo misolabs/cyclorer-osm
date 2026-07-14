@@ -14,6 +14,8 @@ TypeScript Fastify API for serving tile-based OSM data as GeoJSON.
 - Computes bbox in WGS84 from Web Mercator tile indices
 - Queries Overpass for `way[highway]` plus node geometry
 - The Overpass service caches raw query responses in `CACHE_DIR/overpass/` for 60 days before post-processing
+- A highways pipeline applies post-processing to raw OSM data before GeoJSON conversion
+- The pipeline adds `facycle:routes` arrays to member ways for `route=bicycle` relations
 - Converts OSM JSON to GeoJSON via `osmtogeojson`
 - Marks detected dead-ends touching the core tile with `properties.deadend = true`
 - Caches final GeoJSON response to local files under `CACHE_DIR/geojson/`
