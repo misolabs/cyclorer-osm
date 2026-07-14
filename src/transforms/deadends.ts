@@ -1,5 +1,5 @@
 import type { Bbox } from '../utils/mercator';
-import type { OverpassNodeElement, OverpassResponse, OverpassWayElement } from './overpass';
+import type { OverpassNodeElement, OverpassResponse, OverpassWayElement } from '../services/overpass';
 
 type EndpointInfo = {
   startNodeId: number;

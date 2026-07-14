@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { annotateBicycleRouteMembership, buildHighwaysFeatureCollection } from './highways';
+import { buildHighwaysFeatureCollection } from './highways';
+import { annotateBicycleRouteMembership, dropRelationElements } from '../transforms/overpass';
 import type { OverpassResponse } from '../services/overpass';
 
 const tileBbox = {
@@ -28,6 +29,9 @@ test('annotates member ways with bicycle route names and preserves them into Geo
   };
 
   const annotated = annotateBicycleRouteMembership(payload);
+  const stripped = dropRelationElements(annotated);
+  assert.equal(stripped.elements.some((element) => element.type === 'relation'), false);
+
   const way = annotated.elements.find((element) => element.type === 'way' && element.id === 1);
 
   assert.ok(way);
