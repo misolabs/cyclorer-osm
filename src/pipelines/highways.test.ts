@@ -84,3 +84,74 @@ test('deduplicates route names and falls back to PC unknown', () => {
   assert.ok(way);
   assert.deepEqual((way as typeof payload.elements[number] & { tags?: Record<string, unknown> }).tags?.['facycle:routes'], ['Route A', 'PC unknown']);
 });
+
+test('adds facycle classification to the output feature', () => {
+  const payload: OverpassResponse = {
+    version: 0.6,
+    generator: 'test',
+    elements: [
+      {
+        type: 'way',
+        id: 1,
+        nodes: [10, 11],
+        tags: {
+          highway: 'residential',
+          maxspeed: '30',
+        },
+      },
+      { type: 'node', id: 10, lat: 49.0, lon: 6.0 },
+      { type: 'node', id: 11, lat: 49.0, lon: 6.001 },
+    ],
+  };
+
+  const geojson = buildHighwaysFeatureCollection(payload, tileBbox, tileBbox);
+  assert.equal(geojson.features.length, 1);
+  assert.equal(geojson.features[0].properties?.['facycle:classification'], 'low_risk');
+});
+
+test('classifies cycleway track infrastructure as designated', () => {
+  const payload: OverpassResponse = {
+    version: 0.6,
+    generator: 'test',
+    elements: [
+      {
+        type: 'way',
+        id: 1,
+        nodes: [10, 11],
+        tags: {
+          highway: 'residential',
+          cycleway: 'track',
+        },
+      },
+      { type: 'node', id: 10, lat: 49.0, lon: 6.0 },
+      { type: 'node', id: 11, lat: 49.0, lon: 6.001 },
+    ],
+  };
+
+  const geojson = buildHighwaysFeatureCollection(payload, tileBbox, tileBbox);
+  assert.equal(geojson.features.length, 1);
+  assert.equal(geojson.features[0].properties?.['facycle:classification'], 'designated');
+});
+
+test('classifies forbidden or high-speed roads as not suitable', () => {
+  const payload: OverpassResponse = {
+    version: 0.6,
+    generator: 'test',
+    elements: [
+      {
+        type: 'way',
+        id: 1,
+        nodes: [10, 11],
+        tags: {
+          highway: 'motorway',
+        },
+      },
+      { type: 'node', id: 10, lat: 49.0, lon: 6.0 },
+      { type: 'node', id: 11, lat: 49.0, lon: 6.001 },
+    ],
+  };
+
+  const geojson = buildHighwaysFeatureCollection(payload, tileBbox, tileBbox);
+  assert.equal(geojson.features.length, 1);
+  assert.equal(geojson.features[0].properties?.['facycle:classification'], 'not_suitable');
+});
