@@ -66,6 +66,41 @@ npm install
 npm run dev
 ```
 
+## Fly.io Deployment
+
+The repo is set up to run on Fly.io with a persistent cache volume mounted at `/app/cache`.
+
+1. Log in and create the app:
+
+```bash
+fly auth login
+fly apps create cyclorer-osm
+```
+
+2. Create the volume in the app region:
+
+```bash
+fly volumes create cache_vol --app cyclorer-osm --region lhr --size 1
+```
+
+3. Set runtime configuration:
+
+```bash
+fly secrets set \
+  OVERPASS_URLS="https://overpass-api.de/api/interpreter,https://overpass.kumi.systems/api/interpreter" \
+  CORS_ORIGIN="http://localhost:5173,https://misolabs.github.io"
+```
+
+4. Deploy:
+
+```bash
+fly deploy
+```
+
+The container uses `CACHE_DIR=/app/cache`, so the mounted volume is used automatically for both raw Overpass responses and GeoJSON cache files.
+
+`CORS_ORIGIN` accepts a comma-separated allowlist of origins. Use `*` for open CORS.
+
 ## Quick test
 
 ```bash

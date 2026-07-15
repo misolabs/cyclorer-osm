@@ -1,5 +1,5 @@
 app            = 'cyclorer-osm'
-primary_region = 'lhr'
+primary_region = 'ams'
 
 [build]
 

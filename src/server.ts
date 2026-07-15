@@ -17,7 +17,9 @@ export async function buildServer() {
 
   // Plugins
   await app.register(cors, {
-    origin: config.corsOrigin,
+    origin: config.corsOrigins.length === 1 && config.corsOrigins[0] === '*'
+      ? true
+      : config.corsOrigins,
     methods: ['GET', 'OPTIONS'],
   });
 
@@ -29,4 +31,3 @@ export async function buildServer() {
 
   return app;
 }
-

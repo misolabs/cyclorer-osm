@@ -32,7 +32,7 @@ First match wins.
    - legal and usable, but not calm enough to count as low risk
    - `highway=residential`, `service`, or `unclassified` without stronger low-risk evidence
    - `highway=tertiary` or `highway=tertiary_link` with `maxspeed <= 50` or no maxspeed
-   - `highway=secondary` or `highway=secondary_link` with `maxspeed <= 40`
+   - `highway=secondary` or `highway=secondary_link` with `maxspeed <= 50`
 
 5. `adult_only`
    - default for remaining bike-legal ways
