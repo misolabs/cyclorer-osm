@@ -7,7 +7,7 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
-    "test": "npm run build && node --test dist/pipelines/*.test.js"
+    "test": "npm run build && node --test dist/pipelines/*.test.js dist/transforms/*.test.js"
   },
   "keywords": [],
   "author": "",

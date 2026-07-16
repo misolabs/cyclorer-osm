@@ -1,13 +1,6 @@
 import type { Bbox } from '../utils/mercator';
 import type { OverpassNodeElement, OverpassResponse, OverpassWayElement } from '../services/overpass';
 
-type EndpointInfo = {
-  startNodeId: number;
-  endNodeId: number;
-  startNode?: OverpassNodeElement;
-  endNode?: OverpassNodeElement;
-};
-
 function isWayElement(element: OverpassResponse['elements'][number]): element is OverpassWayElement {
   return element.type === 'way' && Array.isArray((element as OverpassWayElement).nodes);
 }
@@ -32,84 +25,67 @@ function isForbiddenWay(way: OverpassWayElement): boolean {
       || way.tags?.bicycle === 'no';
 }
 
-function getEndpointInfo(way: OverpassWayElement, nodesById: Map<number, OverpassNodeElement>): EndpointInfo | null {
-  if (way.nodes.length < 2) {
-    return null;
-  }
-
-  const startNodeId = way.nodes[0];
-  const endNodeId = way.nodes[way.nodes.length - 1];
-
-  if (startNodeId === endNodeId) {
-    return null;
-  }
-
-  return {
-    startNodeId,
-    endNodeId,
-    startNode: nodesById.get(startNodeId),
-    endNode: nodesById.get(endNodeId),
-  };
-}
-
-function endpointIsTerminal(
+function nodeConnectsToActiveNetwork(
   nodeId: number,
   selfWayId: number,
-  waysByNodeId: Map<number, Map<number, 'endpoint' | 'inner'>>,
+  waysByNodeId: Map<number, Set<number>>,
   forbiddenWayIds: Set<number>,
   deadendWayIds: Set<number>,
 ): boolean {
   const connectedWays = waysByNodeId.get(nodeId);
   if (!connectedWays || connectedWays.size === 0) {
-    return true;
+    return false;
   }
 
-  for (const [connectedWayId, role] of connectedWays) {
+  for (const connectedWayId of connectedWays) {
     if (connectedWayId === selfWayId) {
       continue;
     }
 
-    // Endpoint touching the interior of another non-forbidden way is a junction,
-    // even if that other way is later classified as dead-end.
-    if (role === 'inner' && !forbiddenWayIds.has(connectedWayId)) {
-      return false;
-    }
-
     if (!forbiddenWayIds.has(connectedWayId) && !deadendWayIds.has(connectedWayId)) {
-      return false;
+      return true;
     }
   }
 
-  return true;
+  return false;
 }
 
 function isTileRelevantDeadend(
-  endpointInfo: EndpointInfo,
+  nodeIds: Set<number>,
+  nodesById: Map<number, OverpassNodeElement>,
   tileBbox: Bbox,
   queryBbox: Bbox,
 ): boolean {
-  if (!endpointInfo.startNode || !endpointInfo.endNode) {
-    return false;
+  let touchesTile = false;
+  let touchesQuery = false;
+
+  for (const nodeId of nodeIds) {
+    const node = nodesById.get(nodeId);
+    if (!node) {
+      continue;
+    }
+
+    if (isInsideBbox(node, tileBbox)) {
+      touchesTile = true;
+    }
+
+    if (isInsideBbox(node, queryBbox)) {
+      touchesQuery = true;
+    }
+
+    if (touchesTile && touchesQuery) {
+      return true;
+    }
   }
 
-  const startInQuery = isInsideBbox(endpointInfo.startNode, queryBbox);
-  const endInQuery = isInsideBbox(endpointInfo.endNode, queryBbox);
-
-  if (!startInQuery || !endInQuery) {
-    return false;
-  }
-
-  const startInTile = isInsideBbox(endpointInfo.startNode, tileBbox);
-  const endInTile = isInsideBbox(endpointInfo.endNode, tileBbox);
-
-  // Keep dead-ends that touch the core tile at either endpoint, including fully in-tile ways.
-  return startInTile || endInTile;
+  return false;
 }
 
 export function detectDeadendWayIds(payload: OverpassResponse, tileBbox: Bbox, queryBbox: Bbox): Set<number> {
   const nodesById = new Map<number, OverpassNodeElement>();
   const waysById = new Map<number, OverpassWayElement>();
-  const waysByNodeId = new Map<number, Map<number, 'endpoint' | 'inner'>>();
+  const waysByNodeId = new Map<number, Set<number>>();
+  const nodeIdsByWayId = new Map<number, Set<number>>();
 
   for (const element of payload.elements) {
     if (isNodeElement(element)) {
@@ -123,30 +99,20 @@ export function detectDeadendWayIds(payload: OverpassResponse, tileBbox: Bbox, q
 
     waysById.set(element.id, element);
 
-    const lastIndex = element.nodes.length - 1;
-    for (const [index, nodeId] of element.nodes.entries()) {
-      const role: 'endpoint' | 'inner' = index === 0 || index === lastIndex ? 'endpoint' : 'inner';
-      const wayRoles = waysByNodeId.get(nodeId) ?? new Map<number, 'endpoint' | 'inner'>();
-      const previousRole = wayRoles.get(element.id);
+    // Treat every node on a way as a potential junction point.
+    const uniqueNodeIds = new Set(element.nodes);
+    nodeIdsByWayId.set(element.id, uniqueNodeIds);
 
-      // If a node appears multiple times on a way, preserve inner classification.
-      if (previousRole !== 'inner') {
-        wayRoles.set(element.id, role);
-      }
-
-      waysByNodeId.set(nodeId, wayRoles);
+    for (const nodeId of uniqueNodeIds) {
+      const connectedWays = waysByNodeId.get(nodeId) ?? new Set<number>();
+      connectedWays.add(element.id);
+      waysByNodeId.set(nodeId, connectedWays);
     }
   }
 
-  const endpointInfoByWayId = new Map<number, EndpointInfo>();
   const forbiddenWayIds = new Set<number>();
 
   for (const way of waysById.values()) {
-    const endpointInfo = getEndpointInfo(way, nodesById);
-    if (endpointInfo) {
-      endpointInfoByWayId.set(way.id, endpointInfo);
-    }
-
     if (isForbiddenWay(way)) {
       forbiddenWayIds.add(way.id);
     }
@@ -158,27 +124,26 @@ export function detectDeadendWayIds(payload: OverpassResponse, tileBbox: Bbox, q
   while (changed) {
     changed = false;
 
-    for (const [wayId, endpointInfo] of endpointInfoByWayId) {
+    for (const [wayId, nodeIds] of nodeIdsByWayId) {
       if (forbiddenWayIds.has(wayId) || deadendWayIds.has(wayId)) {
         continue;
       }
 
-      const startTerminal = endpointIsTerminal(
-        endpointInfo.startNodeId,
-        wayId,
-        waysByNodeId,
-        forbiddenWayIds,
-        deadendWayIds,
-      );
-      const endTerminal = endpointIsTerminal(
-        endpointInfo.endNodeId,
-        wayId,
-        waysByNodeId,
-        forbiddenWayIds,
-        deadendWayIds,
-      );
+      let connectedNodeCount = 0;
+      for (const nodeId of nodeIds) {
+        if (!nodeConnectsToActiveNetwork(nodeId, wayId, waysByNodeId, forbiddenWayIds, deadendWayIds)) {
+          continue;
+        }
 
-      if (!startTerminal && !endTerminal) {
+        connectedNodeCount += 1;
+        if (connectedNodeCount > 1) {
+          break;
+        }
+      }
+
+      // Iterative pruning rule: a way is a dead-end when it has at most one
+      // node connected to the remaining non-forbidden, non-dead-end network.
+      if (connectedNodeCount > 1) {
         continue;
       }
 
@@ -190,12 +155,12 @@ export function detectDeadendWayIds(payload: OverpassResponse, tileBbox: Bbox, q
   const relevantDeadendWayIds = new Set<number>();
 
   for (const wayId of deadendWayIds) {
-    const endpointInfo = endpointInfoByWayId.get(wayId);
-    if (!endpointInfo) {
+    const nodeIds = nodeIdsByWayId.get(wayId);
+    if (!nodeIds || nodeIds.size === 0) {
       continue;
     }
 
-    if (isTileRelevantDeadend(endpointInfo, tileBbox, queryBbox)) {
+    if (isTileRelevantDeadend(nodeIds, nodesById, tileBbox, queryBbox)) {
       relevantDeadendWayIds.add(wayId);
     }
   }

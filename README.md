@@ -50,7 +50,9 @@ After conversion, a final crop step is applied: a feature is kept only if its ge
 ## Dead-end tagging
 
 - Dead-end detection runs on the padded Overpass result before GeoJSON conversion
-- A returned way is tagged with `deadend: true` when it is part of an iteratively pruned terminal branch and has at least one endpoint inside the core tile (including fully in-tile dead-ends)
+- A way is tagged with `deadend: true` when iterative pruning leaves it with at most one node connected to the remaining non-forbidden, non-dead-end network
+- All nodes of a way are treated as potential junctions (not only endpoints)
+- Only dead-end ways touching the core tile are annotated in the response
 - For now, ways with `access=no` are treated as forbidden during pruning
 
 ## Env
