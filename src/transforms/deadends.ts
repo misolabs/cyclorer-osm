@@ -56,29 +56,32 @@ function isTileRelevantDeadend(
   tileBbox: Bbox,
   queryBbox: Bbox,
 ): boolean {
+  // Only classify dead-ends whose every node falls within the padded query bbox.
+  // Ways that extend beyond the query boundary may have unseen connections
+  // outside our data window, so we cannot reliably determine whether they
+  // are truly terminal.
   let touchesTile = false;
-  let touchesQuery = false;
 
   for (const nodeId of nodeIds) {
     const node = nodesById.get(nodeId);
     if (!node) {
-      continue;
+      // Node geometry is missing — we have incomplete data for this way.
+      return false;
+    }
+
+    if (!isInsideBbox(node, queryBbox)) {
+      // At least one node lies outside our padded fetch area — connectivity
+      // beyond that point is unknown, so skip this way.
+      return false;
     }
 
     if (isInsideBbox(node, tileBbox)) {
       touchesTile = true;
     }
-
-    if (isInsideBbox(node, queryBbox)) {
-      touchesQuery = true;
-    }
-
-    if (touchesTile && touchesQuery) {
-      return true;
-    }
   }
 
-  return false;
+  // Report only dead-ends that touch the core tile.
+  return touchesTile;
 }
 
 export function detectDeadendWayIds(payload: OverpassResponse, tileBbox: Bbox, queryBbox: Bbox): Set<number> {

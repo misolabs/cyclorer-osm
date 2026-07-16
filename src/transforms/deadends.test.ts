@@ -45,6 +45,24 @@ test('uses all nodes of a way for dead-end pruning, including inner-node junctio
   assert.equal(deadends.has(4), false);
 });
 
+test('excludes ways with nodes outside the query bbox — connectivity is unknown there', () => {
+  const payload: OverpassResponse = {
+    version: 0.6,
+    generator: 'test',
+    elements: [
+      // Way appears isolated in the topology, but one node is outside queryBbox.
+      { type: 'way', id: 1, nodes: [10, 11], tags: { highway: 'service' } },
+      { type: 'node', id: 10, lon: 6.0, lat: 49.0 },
+      // Node 11 is outside the padded query area — we can't trust the topology here.
+      { type: 'node', id: 11, lon: 6.004, lat: 49.0 },
+    ],
+  };
+
+  const deadends = detectDeadendWayIds(payload, tileBbox, queryBbox);
+  // Should NOT be flagged — we don't know what way 1 connects to beyond the boundary.
+  assert.equal(deadends.has(1), false);
+});
+
 test('treats only non-forbidden ways as active connections during pruning', () => {
   const payload: OverpassResponse = {
     version: 0.6,
