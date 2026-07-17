@@ -17,6 +17,7 @@ TypeScript Fastify API for serving tile-based OSM data as GeoJSON.
 - A highways pipeline applies post-processing to raw OSM data before GeoJSON conversion
 - The pipeline adds `facycle:routes` arrays to member ways for `route=bicycle` relations
 - The pipeline adds `facycle:classification` to highway ways using a mutually exclusive ordered scheme
+- Offroad `path`, `track`, `footway`, and `bridleway` ways are classified using `surface`, `smoothness`, `tracktype`, and `mtb:scale`
 - The pipeline strips relation elements before `osmtogeojson` to avoid relation geometry in the output
 - Converts OSM JSON to GeoJSON via `osmtogeojson`
 - Marks detected dead-ends touching the core tile with `properties.deadend = true`

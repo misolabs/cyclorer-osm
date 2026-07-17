@@ -7,7 +7,38 @@ export type FacycleClassification =
   | 'adult_only'
   | 'not_suitable';
 
-function asTagString(value: unknown): string | null {
+const OFFROAD_HIGHWAYS = new Set(['path', 'track', 'footway', 'bridleway']);
+const GOOD_SURFACES = new Set([
+  'asphalt',
+  'paved',
+  'concrete',
+  'concrete:lanes',
+  'concrete:plates',
+  'sett',
+  'paving_stones',
+]);
+const ACCEPTABLE_SURFACES = new Set([
+  'compacted',
+  'fine_gravel',
+  'gravel',
+  'wood',
+  'boardwalk',
+]);
+const ROUGH_SURFACES = new Set([
+  'sand',
+  'mud',
+  'earth',
+  'ground',
+  'dirt',
+  'grass',
+]);
+
+function tagValue(tags: OverpassTags | undefined, key: string): string | null {
+  if (!tags) {
+    return null;
+  }
+
+  const value = tags[key];
   if (typeof value !== 'string') {
     return null;
   }
@@ -16,57 +47,96 @@ function asTagString(value: unknown): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
-function asTagNumber(value: unknown): number | null {
-  const parsed = typeof value === 'string' ? Number.parseFloat(value) : Number(value);
+function tagValueLower(tags: OverpassTags | undefined, key: string): string | null {
+  const value = tagValue(tags, key);
+  return value ? value.toLowerCase() : null;
+}
+
+function parseNumberTag(tags: OverpassTags | undefined, key: string): number | null {
+  const value = tagValue(tags, key);
+  if (!value) {
+    return null;
+  }
+
+  const parsed = Number.parseFloat(value);
   return Number.isFinite(parsed) ? parsed : null;
 }
 
 function hasAnyValue(tags: OverpassTags | undefined, keys: string[], values: Set<string>): boolean {
-  if (!tags) {
-    return false;
-  }
-
   for (const key of keys) {
-    const value = tags[key];
-    if (typeof value !== 'string') {
-      continue;
-    }
-
-    const normalized = value.trim().toLowerCase();
-    if (values.has(normalized)) {
+    const value = tagValueLower(tags, key);
+    if (value && values.has(value)) {
       return true;
     }
   }
-
   return false;
 }
 
-function hasCyclewayTrackLike(tags: OverpassTags | undefined): boolean {
-  if (!tags) {
-    return false;
-  }
-
-  const values = new Set(['track', 'separate']);
-  return (
-    hasAnyValue(tags, ['cycleway', 'cycleway:left', 'cycleway:right', 'cycleway:both'], values)
-    || hasAnyValue(tags, ['cycleway:left:oneway', 'cycleway:right:oneway'], values)
-  );
+function highway(tags: OverpassTags | undefined): string | null {
+  return tagValueLower(tags, 'highway');
 }
 
-function isDesignated(tags: OverpassTags | undefined): boolean {
-  if (!tags) {
-    return false;
+function bicycleAccess(tags: OverpassTags | undefined): string | null {
+  return tagValueLower(tags, 'bicycle');
+}
+
+function hasExplicitBikeAccess(tags: OverpassTags | undefined): boolean {
+  return bicycleAccess(tags) === 'yes' || bicycleAccess(tags) === 'designated';
+}
+
+function hasGoodSurface(tags: OverpassTags | undefined): boolean {
+  const value = tagValueLower(tags, 'surface');
+  return value !== null && GOOD_SURFACES.has(value);
+}
+
+function hasAcceptableSurface(tags: OverpassTags | undefined): boolean {
+  const value = tagValueLower(tags, 'surface');
+  return value !== null && (GOOD_SURFACES.has(value) || ACCEPTABLE_SURFACES.has(value));
+}
+
+function hasRoughSurface(tags: OverpassTags | undefined): boolean {
+  const value = tagValueLower(tags, 'surface');
+  return value !== null && ROUGH_SURFACES.has(value);
+}
+
+function smoothnessScore(tags: OverpassTags | undefined): number | null {
+  const value = tagValueLower(tags, 'smoothness');
+  if (!value) {
+    return null;
   }
 
-  if (tags.highway === 'cycleway') {
-    return true;
+  switch (value) {
+    case 'excellent':
+      return 0;
+    case 'good':
+      return 1;
+    case 'intermediate':
+      return 2;
+    case 'bad':
+      return 3;
+    case 'very_bad':
+      return 4;
+    case 'horrible':
+      return 5;
+    case 'very_horrible':
+      return 6;
+    default:
+      return null;
+  }
+}
+
+function trackTypeGrade(tags: OverpassTags | undefined): number | null {
+  const value = tagValueLower(tags, 'tracktype');
+  if (!value || !value.startsWith('grade')) {
+    return null;
   }
 
-  if (tags.bicycle === 'designated') {
-    return true;
-  }
+  const parsed = Number.parseInt(value.slice('grade'.length), 10);
+  return Number.isFinite(parsed) ? parsed : null;
+}
 
-  return hasCyclewayTrackLike(tags);
+function mtbScale(tags: OverpassTags | undefined): number | null {
+  return parseNumberTag(tags, 'mtb:scale');
 }
 
 function isNotSuitable(tags: OverpassTags | undefined): boolean {
@@ -74,36 +144,163 @@ function isNotSuitable(tags: OverpassTags | undefined): boolean {
     return false;
   }
 
-  if (tags.bicycle === 'no') {
+  if (bicycleAccess(tags) === 'no') {
     return true;
   }
 
-  if (tags.access === 'no' && tags.bicycle !== 'yes' && tags.bicycle !== 'designated') {
+  if (tagValueLower(tags, 'access') === 'no' && !hasExplicitBikeAccess(tags)) {
     return true;
   }
 
-  if (tags.access === 'private') {
+  if (tagValueLower(tags, 'access') === 'private') {
     return true;
   }
 
-  if (tags.highway === 'motorway' || tags.highway === 'motorway_link') {
+  const highwayTag = highway(tags);
+  if (highwayTag === 'motorway' || highwayTag === 'motorway_link') {
     return true;
   }
 
-  if (tags.highway === 'steps') {
+  if (highwayTag === 'steps') {
     return true;
   }
 
-  if (tags.construction === 'yes' || tags.highway === 'construction') {
+  if (highwayTag === 'construction' || tagValueLower(tags, 'construction') === 'yes') {
     return true;
   }
 
-  const maxspeed = asTagNumber(tags.maxspeed);
+  const maxspeed = parseNumberTag(tags, 'maxspeed');
   if (maxspeed !== null && maxspeed > 90) {
     return true;
   }
 
+  if (highwayTag === 'footway' && !hasExplicitBikeAccess(tags)) {
+    return true;
+  }
+
+  const trackGrade = trackTypeGrade(tags);
+  if (trackGrade !== null && trackGrade >= 4) {
+    return true;
+  }
+
+  const mtb = mtbScale(tags);
+  if (mtb !== null && mtb >= 3) {
+    return true;
+  }
+
+  const smooth = smoothnessScore(tags);
+  if (smooth !== null && smooth >= 3) {
+    return true;
+  }
+
+  if (hasRoughSurface(tags) && smooth === null) {
+    return true;
+  }
+
   return false;
+}
+
+function isDesignated(tags: OverpassTags | undefined): boolean {
+  if (!tags) {
+    return false;
+  }
+
+  const highwayTag = highway(tags);
+  if (highwayTag === 'cycleway') {
+    return true;
+  }
+
+  if (hasAnyValue(tags, ['cycleway', 'cycleway:left', 'cycleway:right', 'cycleway:both'], new Set(['track', 'separate']))) {
+    return true;
+  }
+
+  if (bicycleAccess(tags) === 'designated' && highwayTag !== 'footway') {
+    return true;
+  }
+
+  return false;
+}
+
+function classifyOffroad(tags: OverpassTags | undefined): FacycleClassification | null {
+  const highwayTag = highway(tags);
+  if (!highwayTag || !OFFROAD_HIGHWAYS.has(highwayTag)) {
+    return null;
+  }
+
+  const hasBikeAccess = hasExplicitBikeAccess(tags);
+  const trackGrade = trackTypeGrade(tags);
+  const mtb = mtbScale(tags);
+  const smooth = smoothnessScore(tags);
+  const goodSurface = hasGoodSurface(tags);
+  const acceptableSurface = hasAcceptableSurface(tags);
+
+  if (highwayTag === 'footway') {
+    if (!hasBikeAccess) {
+      return 'not_suitable';
+    }
+
+    if (goodSurface && (smooth === null || smooth <= 1) && (mtb === null || mtb <= 1)) {
+      return 'acceptable';
+    }
+
+    return 'adult_only';
+  }
+
+  if (highwayTag === 'track') {
+    if (trackGrade !== null) {
+      if (trackGrade <= 1 && goodSurface && (smooth === null || smooth <= 1) && (mtb === null || mtb <= 1)) {
+        return 'low_risk';
+      }
+
+      if (trackGrade === 2 && acceptableSurface && (smooth === null || smooth <= 2) && (mtb === null || mtb <= 1)) {
+        return 'acceptable';
+      }
+
+      if (trackGrade === 3) {
+        return 'adult_only';
+      }
+    }
+
+    if (goodSurface && (smooth === null || smooth <= 1) && (mtb === null || mtb <= 1)) {
+      return 'low_risk';
+    }
+
+    if (acceptableSurface && (smooth === null || smooth <= 2) && (mtb === null || mtb <= 2)) {
+      return 'acceptable';
+    }
+
+    return 'adult_only';
+  }
+
+  if (highwayTag === 'path' || highwayTag === 'bridleway') {
+    if (trackGrade !== null && trackGrade >= 4) {
+      return 'not_suitable';
+    }
+
+    if (hasBikeAccess && goodSurface && (smooth === null || smooth <= 1) && (mtb === null || mtb <= 1)) {
+      return 'low_risk';
+    }
+
+    if (hasBikeAccess && acceptableSurface && (smooth === null || smooth <= 2) && (mtb === null || mtb <= 2)) {
+      return 'acceptable';
+    }
+
+    if (goodSurface && (smooth === null || smooth <= 2) && (mtb === null || mtb <= 2)) {
+      return 'adult_only';
+    }
+
+    if (acceptableSurface && (smooth === null || smooth <= 2)) {
+      return 'adult_only';
+    }
+
+    if (hasRoughSurface(tags)) {
+      return 'not_suitable';
+    }
+
+    return 'adult_only';
+  }
+
+  return null;
 }
 
 function isLowRisk(tags: OverpassTags | undefined): boolean {
@@ -111,23 +308,24 @@ function isLowRisk(tags: OverpassTags | undefined): boolean {
     return false;
   }
 
-  if (tags.highway === 'living_street') {
+  const highwayTag = highway(tags);
+  if (highwayTag === 'living_street') {
     return true;
   }
 
-  if (tags.highway === 'residential' || tags.highway === 'service') {
-    const maxspeed = asTagNumber(tags.maxspeed);
+  if (highwayTag === 'residential' || highwayTag === 'service') {
+    const maxspeed = parseNumberTag(tags, 'maxspeed');
     if (maxspeed !== null && maxspeed <= 30) {
       return true;
     }
 
-    if (tags.lit === 'yes' && tags.surface && tags.sidewalk === 'both') {
+    if (tagValueLower(tags, 'lit') === 'yes' && tagValueLower(tags, 'sidewalk') === 'both') {
       return true;
     }
   }
 
-  if (tags.highway === 'unclassified') {
-    const maxspeed = asTagNumber(tags.maxspeed);
+  if (highwayTag === 'unclassified') {
+    const maxspeed = parseNumberTag(tags, 'maxspeed');
     if (maxspeed !== null && maxspeed <= 30) {
       return true;
     }
@@ -141,19 +339,19 @@ function isAcceptable(tags: OverpassTags | undefined): boolean {
     return false;
   }
 
-  const highway = tags.highway;
-  const maxspeed = asTagNumber(tags.maxspeed);
+  const highwayTag = highway(tags);
+  const maxspeed = parseNumberTag(tags, 'maxspeed');
 
-  if (highway === 'residential' || highway === 'service' || highway === 'unclassified') {
+  if (highwayTag === 'residential' || highwayTag === 'service' || highwayTag === 'unclassified') {
     return true;
   }
 
-  if (highway === 'tertiary' || highway === 'tertiary_link') {
+  if (highwayTag === 'tertiary' || highwayTag === 'tertiary_link') {
     return maxspeed === null || maxspeed <= 50;
   }
 
-  if (highway === 'secondary' || highway === 'secondary_link') {
-    return maxspeed !== null && maxspeed <= 40;
+  if (highwayTag === 'secondary' || highwayTag === 'secondary_link') {
+    return maxspeed !== null && maxspeed <= 50;
   }
 
   return false;
@@ -164,23 +362,19 @@ function isAdultOnly(tags: OverpassTags | undefined): boolean {
     return false;
   }
 
-  const highway = tags.highway;
-  const maxspeed = asTagNumber(tags.maxspeed);
+  const highwayTag = highway(tags);
+  const maxspeed = parseNumberTag(tags, 'maxspeed');
 
-  if (highway === 'primary' || highway === 'primary_link') {
+  if (highwayTag === 'primary' || highwayTag === 'primary_link') {
     return true;
   }
 
-  if (highway === 'secondary' || highway === 'secondary_link') {
-    return maxspeed === null || maxspeed > 40;
+  if (highwayTag === 'secondary' || highwayTag === 'secondary_link') {
+    return maxspeed === null || maxspeed > 50;
   }
 
-  if (highway === 'tertiary' || highway === 'tertiary_link') {
+  if (highwayTag === 'tertiary' || highwayTag === 'tertiary_link') {
     return maxspeed !== null && maxspeed > 50;
-  }
-
-  if (maxspeed !== null && maxspeed > 50) {
-    return true;
   }
 
   return false;
@@ -193,6 +387,11 @@ function classifyWay(tags: OverpassTags | undefined): FacycleClassification {
 
   if (isDesignated(tags)) {
     return 'designated';
+  }
+
+  const offroadClassification = classifyOffroad(tags);
+  if (offroadClassification) {
+    return offroadClassification;
   }
 
   if (isLowRisk(tags)) {

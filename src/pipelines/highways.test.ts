@@ -155,3 +155,82 @@ test('classifies forbidden or high-speed roads as not suitable', () => {
   assert.equal(geojson.features.length, 1);
   assert.equal(geojson.features[0].properties?.['facycle:classification'], 'not_suitable');
 });
+
+test('classifies well surfaced tracks as low risk', () => {
+  const payload: OverpassResponse = {
+    version: 0.6,
+    generator: 'test',
+    elements: [
+      {
+        type: 'way',
+        id: 1,
+        nodes: [10, 11],
+        tags: {
+          highway: 'track',
+          tracktype: 'grade1',
+          surface: 'asphalt',
+          smoothness: 'good',
+          'mtb:scale': '0',
+        },
+      },
+      { type: 'node', id: 10, lat: 49.0, lon: 6.0 },
+      { type: 'node', id: 11, lat: 49.0, lon: 6.001 },
+    ],
+  };
+
+  const geojson = buildHighwaysFeatureCollection(payload, tileBbox, tileBbox);
+  assert.equal(geojson.features.length, 1);
+  assert.equal(geojson.features[0].properties?.['facycle:classification'], 'low_risk');
+});
+
+test('classifies rough tracks as adult only or not suitable', () => {
+  const payload: OverpassResponse = {
+    version: 0.6,
+    generator: 'test',
+    elements: [
+      {
+        type: 'way',
+        id: 1,
+        nodes: [10, 11],
+        tags: {
+          highway: 'track',
+          tracktype: 'grade3',
+          surface: 'gravel',
+          smoothness: 'intermediate',
+        },
+      },
+      { type: 'node', id: 10, lat: 49.0, lon: 6.0 },
+      { type: 'node', id: 11, lat: 49.0, lon: 6.001 },
+    ],
+  };
+
+  const geojson = buildHighwaysFeatureCollection(payload, tileBbox, tileBbox);
+  assert.equal(geojson.features.length, 1);
+  assert.equal(geojson.features[0].properties?.['facycle:classification'], 'adult_only');
+});
+
+test('classifies bicycle-permitted footways as acceptable only when they are very good', () => {
+  const payload: OverpassResponse = {
+    version: 0.6,
+    generator: 'test',
+    elements: [
+      {
+        type: 'way',
+        id: 1,
+        nodes: [10, 11],
+        tags: {
+          highway: 'footway',
+          bicycle: 'yes',
+          surface: 'asphalt',
+          smoothness: 'good',
+        },
+      },
+      { type: 'node', id: 10, lat: 49.0, lon: 6.0 },
+      { type: 'node', id: 11, lat: 49.0, lon: 6.001 },
+    ],
+  };
+
+  const geojson = buildHighwaysFeatureCollection(payload, tileBbox, tileBbox);
+  assert.equal(geojson.features.length, 1);
+  assert.equal(geojson.features[0].properties?.['facycle:classification'], 'acceptable');
+});
